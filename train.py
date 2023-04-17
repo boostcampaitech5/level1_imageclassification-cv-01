@@ -160,6 +160,7 @@ def train(data_dir, model_dir, args):
     FOloss = create_criterion("focal")
     LAloss = create_criterion("label_smoothing")
     F1loss = create_criterion("f1")
+    CEBloss = create_criterion("cross_entropy_class_balancing")
 
     # criterion = create_criterion(args.criterion)  # default: cross_entropy
     opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
@@ -194,7 +195,7 @@ def train(data_dir, model_dir, args):
 
             outs = model(inputs)
             preds = torch.argmax(outs, dim=-1)
-            loss = CEloss(outs, labels) * args.CEloss + FOloss(outs, labels) * args.FOloss + LAloss(outs, labels) * args.LAloss + F1loss(outs, labels) * args.F1loss
+            loss = CEloss(outs, labels) * args.CEloss + FOloss(outs, labels) * args.FOloss + LAloss(outs, labels) * args.LAloss + F1loss(outs, labels) * args.F1loss + CEBloss(outs, labels) * args.CEBloss
             # loss = criterion(outs, labels)
 
             loss.backward()
@@ -234,7 +235,7 @@ def train(data_dir, model_dir, args):
                 preds = torch.argmax(outs, dim=-1)
 
                 # loss_item = (criterion(outs, labels)).item()
-                loss_item = (CEloss(outs, labels) * args.CEloss + FOloss(outs, labels) * args.FOloss + LAloss(outs, labels) * args.LAloss + F1loss(outs, labels) * args.F1loss).item()
+                loss_item = (CEloss(outs, labels) * args.CEloss + FOloss(outs, labels) * args.FOloss + LAloss(outs, labels) * args.LAloss + F1loss(outs, labels) * args.F1loss + CEBloss(outs, labels) * args.CEBloss).item()
 
                 acc_item = (labels == preds).sum().item()
                 val_loss_items.append(loss_item)
@@ -295,9 +296,10 @@ if __name__ == '__main__':
     parser.add_argument('--FOloss', type=float, default=0, help='weight of FocalLoss')
     parser.add_argument('--LAloss', type=float, default=0, help='weight of LabelSmoothingLoss')
     parser.add_argument('--F1loss', type=float, default=0, help='weight of F1Loss')
+    parser.add_argument('--CEBloss', type=float, default=0, help='weight of CrossEntropyLossWithClassBalancing')
 
     # Container environment
-    parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/data/train/images'))
+    parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
 
     args = parser.parse_args()
