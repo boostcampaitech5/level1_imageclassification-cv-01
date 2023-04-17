@@ -74,3 +74,14 @@ class EfficientNet_MultiLabel(nn.Module):
         x = self.fc(feat)
 
         return x
+    
+class ConvNext(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.model = torchvision.models.convnext_base(pretrained =True)
+        self.model.classifier[2].out_features = 18
+
+
+    def forward(self, x):
+        x = self.model(x)
+        return x
