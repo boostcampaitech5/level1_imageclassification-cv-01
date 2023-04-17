@@ -1,5 +1,12 @@
 import torch.nn as nn
+import torch
 import torch.nn.functional as F
+import torch.nn.functional as F
+import torchvision
+import math
+from facenet_pytorch import MTCNN, InceptionResnetV1
+from res_mlp_pytorch import ResMLP
+from efficientnet_pytorch import EfficientNet
 
 # 주석 추가
 class BaseModel(nn.Module):
@@ -49,4 +56,21 @@ class MyModel(nn.Module):
         1. 위에서 정의한 모델 아키텍쳐를 forward propagation 을 진행해주세요
         2. 결과로 나온 output 을 return 해주세요
         """
+        return x
+
+class EfficientNet_MultiLabel(nn.Module):
+    def __init__(self, in_channels=1, num_classes=1):
+        super(EfficientNet_MultiLabel, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.network = EfficientNet.from_pretrained('efficientnet-b4', in_channels=self.in_channels, num_classes=self.num_classes)
+
+        self.network.fc = nn.Sequential()
+        self.fc = nn.Linear(18, 1) 
+
+    def forward(self, x):
+        
+        feat = self.network(x)
+        x = self.fc(feat)
+
         return x
