@@ -66,11 +66,30 @@ class F1Loss(nn.Module):
         return 1 - f1.mean()
 
 
+class CrossEntropyLossWithClassBalancing(nn.Module):
+    def __init__(self, num_classes=18, weight=torch.tensor([0.7, 0.6, 1.1, 0.5, 0.5, 1.1, 1.1, 1.1, 1.3, 1.1, 1.1, 1.3, 1.1, 1.1, 1.3, 1.1, 1.1, 1.3])):
+        super(CrossEntropyLossWithClassBalancing, self).__init__()
+        self.num_classes = num_classes
+        if weight is None:
+            self.weight = torch.ones(num_classes).cuda()  # 클래스별 가중치를 모두 1로 초기화
+        else:
+            self.weight = weight.cuda()
+
+    def forward(self, inputs, targets):
+        # inputs: 모델의 출력값 (크기: batch_size x num_classes)
+        # targets: 실제 레이블 (크기: batch_size)
+        
+        # Cross Entropy Loss 계산
+        ce_loss = nn.CrossEntropyLoss(weight=self.weight)(inputs, targets)
+
+        return ce_loss
+
 _criterion_entrypoints = {
     'cross_entropy': nn.CrossEntropyLoss,
     'focal': FocalLoss,
     'label_smoothing': LabelSmoothingLoss,
-    'f1': F1Loss
+    'f1': F1Loss,
+    'cross_entropy_class_balancing' : CrossEntropyLossWithClassBalancing
 }
 
 
