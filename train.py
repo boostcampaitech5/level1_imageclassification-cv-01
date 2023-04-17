@@ -17,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from dataset import MaskBaseDataset
 from loss import create_criterion
-
+import pandas as pd
 
 def seed_everything(seed):
     torch.manual_seed(seed)
@@ -301,11 +301,20 @@ if __name__ == '__main__':
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
-
+    parser.add_argument('--df_path', type=str, default=os.environ.get('SM_DF_DIR','/opt/ml/input/data/train' ))
     args = parser.parse_args()
     print(args)
 
     data_dir = args.data_dir
     model_dir = args.model_dir
+    df_dir = args.df_path
+
+    df = pd.read_csv(df_dir+'/train.csv')
+    fetoma=[336, 342, 374, 430, 933, 1369, 1387, 1560, 1570, 2399, 2400, 2401, 2402, 2403, 2404]
+    matofe=[569, 764, 1912]
+    df.loc[fetoma,'gender']='male'
+    df.loc[matofe,'gender']='female'
+    df.to_csv(df_dir+'/train.csv')
 
     train(data_dir, model_dir, args)
+    
