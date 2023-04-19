@@ -4,8 +4,6 @@ import torch.nn.functional as F
 import torch.nn.functional as F
 import torchvision
 import math
-from facenet_pytorch import MTCNN, InceptionResnetV1
-from res_mlp_pytorch import ResMLP
 from efficientnet_pytorch import EfficientNet
 
 # 주석 추가
@@ -71,13 +69,13 @@ class EfficientNet_MultiLabel(nn.Module):
 
         return x
     
-class ConvNext(nn.Module):
+class convnext(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.model = torchvision.models.convnext_base(pretrained =True)
-        self.model.classifier[2].out_features = 18
-
-
-    def forward(self, x):
+        self.model = timm.create_model("convnext_base_384_in22ft1k", pretrained=True)
+        self.num_classes = num_classes
+        self.linear = nn.Linear(1000, self.num_classes)
+    def forward(self,x):
         x = self.model(x)
+        x = self.linear(x)
         return x
