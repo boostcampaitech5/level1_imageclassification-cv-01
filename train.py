@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import MaskBaseDataset
@@ -64,25 +64,25 @@ def grid_image(np_images, gts, preds, n=16, shuffle=False):
     return figure
 
 # loss, accuracy 그래프로 저장
-def save_graph(losses, accuracy, save_dir):
-    plt.figure(figsize=(10, 5))
+# def save_graph(losses, accuracy, save_dir):
+#     plt.figure(figsize=(10, 5))
 
-    plt.subplot(1,2,1)
-    plt.plot(np.array(losses), "blue")
-    _, _, y1, y2 = plt.axis()
-    plt.xlim([0, args.epochs])
-    plt.ylim([0, y2])
-    plt.xlabel("epoch")
-    plt.ylabel("loss")
+#     plt.subplot(1,2,1)
+#     plt.plot(np.array(losses), "blue")
+#     _, _, y1, y2 = plt.axis()
+#     plt.xlim([0, args.epochs])
+#     plt.ylim([0, y2])
+#     plt.xlabel("epoch")
+#     plt.ylabel("loss")
 
-    plt.subplot(1,2,2)
-    plt.plot(np.array(accuracy), "green")
-    plt.xlim([0, args.epochs])
-    plt.ylim([0, 1])
-    plt.xlabel("epoch")
-    plt.ylabel("accuracy")
+#     plt.subplot(1,2,2)
+#     plt.plot(np.array(accuracy), "green")
+#     plt.xlim([0, args.epochs])
+#     plt.ylim([0, 1])
+#     plt.xlabel("epoch")
+#     plt.ylabel("accuracy")
 
-    plt.savefig(f"{save_dir}/graph.png")
+#     plt.savefig(f"{save_dir}/graph.png")
 
 def increment_path(path, exist_ok=False):
     """ Automatically increment path, i.e. runs/exp --> runs/exp0, runs/exp1 etc.
@@ -129,12 +129,23 @@ def train(data_dir, model_dir, args):
 
     # -- data_loader
     train_set, val_set = dataset.split_dataset()
+   
+    y_train=[]
+    for images, labels in train_set:
+        labels = int(labels)
+        y_train.append(labels) # 전부 저장
+    class_sample_count = [2745, 2050, 415, 3660, 4085, 545, 549, 410, 83, 732, 817, 109, 549, 410, 83, 732, 817, 109]    # 18개 클래스 별 count
+    weight = 1. / np.array(class_sample_count)   # 1/n로 가중치 부여 클래스 별, 개수가 많은 클래스면 가중치 작게 설정
+    samples_weight = np.array([weight[t] for t in y_train])  # 모든 레이벨에 대한 가중치 적용
+    samples_weight = torch.from_numpy(samples_weight)    # 텐서형태로 바꿔줌
+    sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)  
 
     train_loader = DataLoader(
         train_set,
         batch_size=args.batch_size,
         num_workers=multiprocessing.cpu_count() // 2,
-        shuffle=True,
+        # shuffle=True,
+        sampler = sampler,
         pin_memory=use_cuda,
         drop_last=True,
     )
@@ -155,14 +166,9 @@ def train(data_dir, model_dir, args):
     ).to(device)
     model = torch.nn.DataParallel(model)
 
-    # -- loss & metric
-    CEloss = create_criterion("cross_entropy")
-    FOloss = create_criterion("focal")
-    LAloss = create_criterion("label_smoothing")
-    F1loss = create_criterion("f1")
-    CEBloss = create_criterion("cross_entropy_class_balancing")
 
-    # criterion = create_criterion(args.criterion)  # default: cross_entropy
+    # -- loss & metric
+    criterion = create_criterion(args.criterion)
     opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
     optimizer = opt_module(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -178,9 +184,6 @@ def train(data_dir, model_dir, args):
 
     best_val_acc = 0
     best_val_loss = np.inf
-    losses = []
-    accuracy = []
-
     for epoch in range(args.epochs):
         # train loop
         model.train()
@@ -195,8 +198,7 @@ def train(data_dir, model_dir, args):
 
             outs = model(inputs)
             preds = torch.argmax(outs, dim=-1)
-            loss = CEloss(outs, labels) * args.CEloss + FOloss(outs, labels) * args.FOloss + LAloss(outs, labels) * args.LAloss + F1loss(outs, labels) * args.F1loss + CEBloss(outs, labels) * args.CEBloss
-            # loss = criterion(outs, labels)
+            loss = criterion(outs, labels)
 
             loss.backward()
             optimizer.step()
@@ -234,8 +236,7 @@ def train(data_dir, model_dir, args):
                 outs = model(inputs)
                 preds = torch.argmax(outs, dim=-1)
 
-                # loss_item = (criterion(outs, labels)).item()
-                loss_item = (CEloss(outs, labels) * args.CEloss + FOloss(outs, labels) * args.FOloss + LAloss(outs, labels) * args.LAloss + F1loss(outs, labels) * args.F1loss + CEBloss(outs, labels) * args.CEBloss).item()
+                loss_item = (criterion(outs, labels)).item()
 
                 acc_item = (labels == preds).sum().item()
                 val_loss_items.append(loss_item)
@@ -250,10 +251,6 @@ def train(data_dir, model_dir, args):
 
             val_loss = np.sum(val_loss_items) / len(val_loader)
             val_acc = np.sum(val_acc_items) / len(val_set)
-
-            losses.append(val_loss)
-            accuracy.append(val_acc)
-
             best_val_loss = min(best_val_loss, val_loss)
             if val_acc > best_val_acc:
                 print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
@@ -269,7 +266,7 @@ def train(data_dir, model_dir, args):
             logger.add_figure("results", figure, epoch)
             print()
 
-            save_graph(losses, accuracy, save_dir)
+            # save_graph(losses, accuracy, save_dir)
 
 
 if __name__ == '__main__':
@@ -277,26 +274,26 @@ if __name__ == '__main__':
 
     # Data and model checkpoints directories
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train (default: 1)')
+    parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train (default: 30)')
     parser.add_argument('--dataset', type=str, default='MaskBaseDataset', help='dataset augmentation type (default: MaskBaseDataset)')
-    parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
-    parser.add_argument("--resize", nargs="+", type=list, default=[128, 96], help='resize size for image when training')
+    parser.add_argument('--augmentation', type=str, default='CustomAugmentation', help='data augmentation type (default: CustomAugmentation)')
+    parser.add_argument("--resize", nargs="+", type=list, default=[224, 224], help='resize size for image when training')
     parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
-    parser.add_argument('--valid_batch_size', type=int, default=1000, help='input batch size for validing (default: 1000)')
-    parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
-    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer type (default: SGD)')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
+    parser.add_argument('--valid_batch_size', type=int, default=64, help='input batch size for validing (default: 64)')
+    parser.add_argument('--model', type=str, default='EfficientNet_MultiLabel', help='model type (default: EfficientNet_MultiLabel)')
+    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer type (default: Adam)')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate (default: 1e-3)')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
-    parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross_entropy)')
-    parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler deacy step (default: 20)')
+    parser.add_argument('--criterion', type=str, default='focal', help='criterion type (default: FocalLoss)')
+    parser.add_argument('--lr_decay_step', type=int, default=200, help='learning rate scheduler deacy step (default: 200)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
 
-    parser.add_argument('--CEloss', type=float, default=1, help='weight of cross_entropy')
-    parser.add_argument('--FOloss', type=float, default=0, help='weight of FocalLoss')
-    parser.add_argument('--LAloss', type=float, default=0, help='weight of LabelSmoothingLoss')
-    parser.add_argument('--F1loss', type=float, default=0, help='weight of F1Loss')
-    parser.add_argument('--CEBloss', type=float, default=0, help='weight of CrossEntropyLossWithClassBalancing')
+    # parser.add_argument('--CEloss', type=float, default=1, help='weight of cross_entropy')
+    # parser.add_argument('--FOloss', type=float, default=0, help='weight of FocalLoss')
+    # parser.add_argument('--LAloss', type=float, default=0, help='weight of LabelSmoothingLoss')
+    # parser.add_argument('--F1loss', type=float, default=0, help='weight of F1Loss')
+    # parser.add_argument('--CEBloss', type=float, default=0, help='weight of CrossEntropyLossWithClassBalancing')
 
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))

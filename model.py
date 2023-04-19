@@ -4,8 +4,6 @@ import torch.nn.functional as F
 import torch.nn.functional as F
 import torchvision
 import math
-from facenet_pytorch import MTCNN, InceptionResnetV1
-from res_mlp_pytorch import ResMLP
 from efficientnet_pytorch import EfficientNet
 
 # 주석 추가
@@ -59,29 +57,23 @@ class MyModel(nn.Module):
         return x
 
 class EfficientNet_MultiLabel(nn.Module):
-    def __init__(self, in_channels=1, num_classes=1):
+    def __init__(self, in_channels=3, num_classes=18):
         super(EfficientNet_MultiLabel, self).__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.network = EfficientNet.from_pretrained('efficientnet-b4', in_channels=self.in_channels, num_classes=self.num_classes)
 
-        self.network.fc = nn.Sequential()
-        self.fc = nn.Linear(18, 1) 
-
     def forward(self, x):
-        
-        feat = self.network(x)
-        x = self.fc(feat)
-
+        x = self.network(x)
         return x
     
-class ConvNext(nn.Module):
+class convnext(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.model = torchvision.models.convnext_base(pretrained =True)
-        self.model.classifier[2].out_features = 18
-
-
-    def forward(self, x):
+        self.model = timm.create_model("convnext_base_384_in22ft1k", pretrained=True)
+        self.num_classes = num_classes
+        self.linear = nn.Linear(1000, self.num_classes)
+    def forward(self,x):
         x = self.model(x)
+        x = self.linear(x)
         return x
