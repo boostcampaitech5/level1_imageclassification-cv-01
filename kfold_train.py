@@ -19,6 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import MaskBaseDataset
 from loss import create_criterion
 
+import torch.nn.init as init
 from sklearn.model_selection import KFold
 
 
@@ -119,7 +120,8 @@ def load_model(saved_model, num_classes, device):
 def train(data_dir, model_dir, args):
     seed_everything(args.seed)
 
-    save_dir = increment_path(os.path.join(model_dir, args.name))
+    # save_dir = increment_path(os.path.join(model_dir, args.name))
+    # save_dir = increment_path(os.path.join(save_dir,'fold_'+str(fold+1)))
 
     # -- settings
     use_cuda = torch.cuda.is_available()
@@ -143,14 +145,14 @@ def train(data_dir, model_dir, args):
 
     # -- K-fold
     n_splits = args.kfold
-    kfold = KFold(n_splits=n_splits, shuffle=True, random_state=args.seed) # 데이터 불균형 해소를 위해 shuffle = True
+    kfold = KFold(n_splits=n_splits, shuffle=True) # 데이터 불균형 해소를 위해 shuffle = True
 
-    # -- model
-    model_module = getattr(import_module("model"), args.model)  # default: BaseModel
-    model = model_module(
-        num_classes=num_classes
-    ).to(device)
-    model = torch.nn.DataParallel(model)
+    # # -- model
+    # model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+    # model = model_module(
+    #     num_classes=num_classes
+    # ).to(device)
+    # model = torch.nn.DataParallel(model)
 
     # -- loss & metric
     CEloss = create_criterion("cross_entropy")
@@ -159,24 +161,20 @@ def train(data_dir, model_dir, args):
     F1loss = create_criterion("f1")
     CEBloss = create_criterion("cross_entropy_class_balancing")
 
-    # criterion = create_criterion(args.criterion)  # default: cross_entropy
-    opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
-    optimizer = opt_module(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.lr,
-        weight_decay=5e-4
-    )
-    scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+    # # criterion = create_criterion(args.criterion)  # default: cross_entropy
+    # opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
+    # optimizer = opt_module(
+    #     filter(lambda p: p.requires_grad, model.parameters()),
+    #     lr=args.lr,
+    #     weight_decay=5e-4
+    # )
+    # scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
     # -- logging
-    logger = SummaryWriter(log_dir=save_dir)
-    with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:
-        json.dump(vars(args), f, ensure_ascii=False, indent=4)
+    # logger = SummaryWriter(log_dir=save_dir)
+    # with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:
+    #     json.dump(vars(args), f, ensure_ascii=False, indent=4)
 
-    best_val_acc = 0
-    best_val_loss = np.inf
-    losses = []
-    accuracy = []
     k_fold = []
     val_idx_list = []
 
@@ -184,10 +182,39 @@ def train(data_dir, model_dir, args):
     patience = args.early_stop # patience 이상 val_acc가 update되지 않으면 stop
     trigger_times = 0 
 
+    save_dir = increment_path(os.path.join(model_dir, args.name))
+
     for fold, (train_idx, val_idx) in enumerate(kfold.split(dataset)): # train set 중 0.2를 validation으로 사용
+
+        best_val_acc = 0
+        best_val_loss = np.inf
+        losses = []
+        accuracy = []
         print('==============[', fold+1,'fold',']==============')
+        print('val_idx', val_idx)
+        save_fold = increment_path(os.path.join(save_dir,'fold_'+str(fold+1)))
+
+        logger = SummaryWriter(log_dir=save_fold)
+        with open(os.path.join(save_fold, 'config.json'), 'w', encoding='utf-8') as f:
+            json.dump(vars(args), f, ensure_ascii=False, indent=4)
+
+        # -- model
+        model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+        model = model_module(
+            num_classes=num_classes
+        ).to(device)
+        model = torch.nn.DataParallel(model)
         train_subsampler = torch.utils.data.SubsetRandomSampler(train_idx)
         val_subsampler = torch.utils.data.SubsetRandomSampler(val_idx)
+
+        # criterion = create_criterion(args.criterion)  # default: cross_entropy
+        opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
+        optimizer = opt_module(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=args.lr,
+            weight_decay=5e-4
+        )
+        scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)    
         
         #print(val_idx)
         val_idx_list.append(val_idx)
@@ -278,9 +305,9 @@ def train(data_dir, model_dir, args):
                 best_val_loss = min(best_val_loss, val_loss)
                 if val_acc > best_val_acc:
                     print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                    torch.save(model.module.state_dict(), f"{save_dir}/best_"f"{fold+1}.pth")
+                    torch.save(model.module.state_dict(), f"{save_fold}/best.pth")
                     best_val_acc = val_acc
-                torch.save(model.module.state_dict(), f"{save_dir}/last_"f"{fold+1}.pth")
+                torch.save(model.module.state_dict(), f"{save_fold}/last.pth")
                 print(
                     f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
                     f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
@@ -312,6 +339,9 @@ def train(data_dir, model_dir, args):
     print(f"============== [Fold reslt] ==============")
     for fold, best_val_acc in k_fold:
         print("k-fold :", fold+1 ,f" Validation acc: {best_val_acc:4.2%}")
+    
+    mean_val_acc = sum([best_val_acc for _, best_val_acc in k_fold]) / args.kfold
+    print("Mean Validation Accuracy = {:.2f}%".format(mean_val_acc*100))
 
 
 if __name__ == '__main__':
@@ -321,15 +351,15 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--dataset', type=str, default='MaskBaseDataset', help='dataset augmentation type (default: MaskBaseDataset)')
-    parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
+    parser.add_argument('--augmentation', type=str, default='CustomAugmentation', help='data augmentation type (default: BaseAugmentation)')
     parser.add_argument("--resize", nargs="+", type=list, default=[224, 224], help='resize size for image when training')
     parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
     parser.add_argument('--valid_batch_size', type=int, default=64, help='input batch size for validing (default: 1000)')
-    parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
+    parser.add_argument('--model', type=str, default='EfficientNet_MultiLabel', help='model type (default: BaseModel)')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer type (default: SGD)')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate (default: 1e-3)')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
-    parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross_entropy)')
+    parser.add_argument('--criterion', type=str, default='focal', help='criterion type (default: cross_entropy)')
     parser.add_argument('--lr_decay_step', type=int, default=200, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
@@ -360,9 +390,5 @@ if __name__ == '__main__':
     df.loc[fetoma,'gender']='male'
     df.loc[matofe,'gender']='female'
     df.to_csv(df_dir+'/train.csv')
-
-    # -- delete cache data
-    print('delete cache memory')
-    torch.cuda.empty_cache()
 
     train(data_dir, model_dir, args)
