@@ -59,19 +59,15 @@ class MyModel(nn.Module):
         return x
 
 class EfficientNet_MultiLabel(nn.Module):
-    def __init__(self, in_channels=1, num_classes=1):
+    def __init__(self, in_channels=3, num_classes=18):
         super(EfficientNet_MultiLabel, self).__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.network = EfficientNet.from_pretrained('efficientnet-b4', in_channels=self.in_channels, num_classes=self.num_classes)
 
-        self.network.fc = nn.Sequential()
-        self.fc = nn.Linear(18, 1) 
-
     def forward(self, x):
         
-        feat = self.network(x)
-        x = self.fc(feat)
+        x = self.network(x)
 
         return x
     
