@@ -64,7 +64,9 @@ class EfficientNet_MultiLabel(nn.Module):
         self.network = EfficientNet.from_pretrained('efficientnet-b4', in_channels=self.in_channels, num_classes=self.num_classes)
 
     def forward(self, x):
+        
         x = self.network(x)
+
         return x
     
 class convnext(nn.Module):
