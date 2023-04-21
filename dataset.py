@@ -62,6 +62,42 @@ class CustomAugmentation:
         return self.transform(image)
 
 
+class BgRemoveAug_yolo:
+    def __init__(self, resize, mean, std, **args):
+        self.yolo = YOLO('/opt/ml/yolov8n-face.pt')   # weight 저장된 파일, 모델 학습용
+        self.transform = Compose([
+            Resize(resize, Image.BILINEAR),
+            ToTensor(),
+            Normalize(mean=mean, std=std),
+        ])
+
+    def yolodetect(self,image_path):
+        result = self.yolo.predict(source= image_path)
+        box = np.array(result[0].__dict__['boxes'].data.cpu())
+        if len(box)!=0:
+            x = int(box[0][0])
+            y = int(box[0][1])
+            xw = int(box[0][2])
+            yh = int(box[0][3])
+        else:
+            x, y, xw,yh = 0, 0, 0, 0
+        return x,y,xw,yh
+
+    def facefinder(self,image_path):
+        image = np.array(Image.open(image_path))
+        x, y, xw, yh = self.yolodetect(image_path)
+
+        cv2.rectangle(image, (xw, y), (384, yh), (0, 0, 0), -1)  # 검정 사각형 그리기
+        cv2.rectangle(image, (0, y), (x, yh), (0, 0, 0), -1)  # 검정 사각형 그리기
+        cv2.rectangle(image, (0, 0), (384, y), (0, 0, 0), -1)  # 검정 사각형 그리기
+        cv2.rectangle(image, (0, yh), (384, 512), (0, 0, 0), -1)  # 검정 사각형 그리기
+
+        return image
+
+    def __call__(self, image_path):
+        return self.transform(Image.fromarray(self.facefinder(image_path)))
+
+
 class MaskLabels(int, Enum):
     MASK = 0
     INCORRECT = 1
