@@ -19,36 +19,6 @@ IMG_EXTENSIONS = [
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
-
-class BaseAugmentation:
-    def __init__(self, resize, mean, std, **args):
-        self.transform = Compose([
-            Resize(resize, Image.BILINEAR),
-            ToTensor(),
-            Normalize(mean=mean, std=std),
-        ])
-
-    def __call__(self, image):
-        return self.transform(image)
-
-
-class AddGaussianNoise(object):
-    """
-        transform 에 없는 기능들은 이런식으로 __init__, __call__, __repr__ 부분을
-        직접 구현하여 사용할 수 있습니다.
-    """
-
-    def __init__(self, mean=0., std=1.):
-        self.std = std
-        self.mean = mean
-
-    def __call__(self, tensor):
-        return tensor + torch.randn(tensor.size()) * self.std + self.mean
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
-
-
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = Compose([
@@ -133,7 +103,7 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        elif value < 60:
+        elif value < 59:
             return cls.MIDDLE
         else:
             return cls.OLD
@@ -168,17 +138,7 @@ class MaskBaseDataset(Dataset):
         self.calc_statistics()
 
     def setup(self):
-        profiles = os.listdir(self.data_dir)
-        for profile in profiles:
-            if profile.startswith("."):  # "." 로 시작하는 파일은 무시합니다
-                continue
-
-            img_folder = os.path.join(self.data_dir, profile)
-            for file_name in os.listdir(img_folder):
-                _file_name, ext = os.path.splitext(file_name)
-                if _file_name not in self._file_names:  # "." 로 시작하는 파일 및 invalid 한 파일들은 무시합니다
-                    continue
-
+        # label 각 label list에 저장
                 img_path = os.path.join(self.data_dir, profile, file_name)  # (resized_data, 000004_male_Asian_54, mask1.jpg)
                 mask_label = self._file_names[_file_name]
 
@@ -191,22 +151,7 @@ class MaskBaseDataset(Dataset):
                 self.gender_labels.append(gender_label)
                 self.age_labels.append(age_label)
 
-    def calc_statistics(self):
-        has_statistics = self.mean is not None and self.std is not None
-        if not has_statistics:
-            print("[Warning] Calculating statistics... It can take a long time depending on your CPU machine")
-            sums = []
-            squared = []
-            for image_path in self.image_paths[:3000]:
-                image = np.array(Image.open(image_path)).astype(np.int32)
-                sums.append(image.mean(axis=(0, 1)))
-                squared.append((image ** 2).mean(axis=(0, 1)))
 
-            self.mean = np.mean(sums, axis=0) / 255
-            self.std = (np.mean(squared, axis=0) - self.mean ** 2) ** 0.5 / 255
-
-    def set_transform(self, transform):
-        self.transform = transform
 
     '''
     # yolo background remove 사용시
@@ -274,16 +219,8 @@ class MaskBaseDataset(Dataset):
 
     def split_dataset(self) -> Tuple[Subset, Subset]:
         """
-        데이터셋을 train 과 val 로 나눕니다,
-        pytorch 내부의 torch.utils.data.random_split 함수를 사용하여
-        torch.utils.data.Subset 클래스 둘로 나눕니다.
-        구현이 어렵지 않으니 구글링 혹은 IDE (e.g. pycharm) 의 navigation 기능을 통해 코드를 한 번 읽어보는 것을 추천드립니다^^
+        데이터셋을 train 과 val 로 나눕니다
         """
-        n_val = int(len(self) * self.val_ratio)
-        n_train = len(self) - n_val
-        train_set, val_set = random_split(self, [n_train, n_val])
-        return train_set, val_set
-
 
 class MaskSplitByProfileDataset(MaskBaseDataset):
     """
